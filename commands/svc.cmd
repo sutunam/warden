@@ -77,10 +77,11 @@ if [[ "${WARDEN_PARAMS[0]}" == "up" ]]; then
 
     ## copy configuration files into location where they'll be mounted into containers from
     mkdir -p "${WARDEN_HOME_DIR}/etc/traefik"
+    mkdir -p "${WARDEN_HOME_DIR}/etc/traefik/dynamic"
     cp "${WARDEN_DIR}/config/traefik/traefik.yml" "${WARDEN_HOME_DIR}/etc/traefik/traefik.yml"
 
     ## generate dynamic traefik ssl termination configuration
-    cat > "${WARDEN_HOME_DIR}/etc/traefik/dynamic.yml" <<-EOT
+    cat > "${WARDEN_HOME_DIR}/etc/traefik/dynamic/tls.yml" <<-EOT
 		tls:
 		  stores:
 		    default:
@@ -91,11 +92,24 @@ if [[ "${WARDEN_PARAMS[0]}" == "up" ]]; then
 	EOT
 
     for cert in $(find "${WARDEN_SSL_DIR}/certs" -type f -name "*.crt.pem" | sed -E 's#^.*/ssl/certs/(.*)\.crt\.pem$#\1#'); do
-        cat >> "${WARDEN_HOME_DIR}/etc/traefik/dynamic.yml" <<-EOF
+        cat >> "${WARDEN_HOME_DIR}/etc/traefik/dynamic/tls.yml" <<-EOF
 		    - certFile: /etc/ssl/certs/warden/${cert}.crt.pem
 		      keyFile: /etc/ssl/certs/warden/${cert}.key.pem
 		EOF
     done
+
+    ## generate dynamic traefik configuration for the traefik dashboard
+    cat > "${WARDEN_HOME_DIR}/etc/traefik/dynamic/traefik.yml" <<-'EOT'
+http:
+  routers:
+    traefik:
+      rule: "Host(`traefik.warden.test`)"
+      service: api@internal
+      tls: {}
+      entryPoints:
+        - https
+      priority: 100
+EOT
 
     ## always execute svc up using --detach mode
     if ! (containsElement "-d" "$@" || containsElement "--detach" "$@"); then

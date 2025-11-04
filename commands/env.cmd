@@ -226,10 +226,46 @@ ${DOCKER_COMPOSE_COMMAND} \
     --project-directory "${WARDEN_ENV_PATH}" -p "${WARDEN_ENV_NAME}" \
     "${DOCKER_COMPOSE_ARGS[@]}" "${WARDEN_PARAMS[@]}" "$@"
 
-
 if [[ "${WARDEN_PARAMS[0]}" == "stop" || "${WARDEN_PARAMS[0]}" == "down" || \
       "${WARDEN_PARAMS[0]}" == "up" || "${WARDEN_PARAMS[0]}" == "start" ]]; then
     regeneratePMAConfig
+
+    WARDEN_WEBSERVICE="nginx"
+    if [[ ${WARDEN_VARNISH} -eq 1 ]]; then
+        WARDEN_WEBSERVICE="varnish"
+    else
+        WARDEN_APACHE=${WARDEN_APACHE:-0}
+        if [[ ${WARDEN_APACHE} -eq 1 ]]; then
+            WARDEN_WEBSERVICE="apache"
+        else
+            WARDEN_WEBSERVICE="nginx"
+        fi
+    fi
+    echo "🧩 Generating dynamic Traefik config for environment: ${WARDEN_ENV_NAME}"
+
+    DYNAMIC_DIR="${WARDEN_HOME_DIR}/etc/traefik/dynamic"
+    DYNAMIC_FILE="${DYNAMIC_DIR}/${WARDEN_ENV_NAME}.yml"
+    mkdir -p "$DYNAMIC_DIR"
+
+    cat > "$DYNAMIC_FILE" <<-EOT
+http:
+  routers:
+    ${WARDEN_ENV_NAME}-${WARDEN_WEBSERVICE}:
+      rule: "HostRegexp(\`{subdomain:.+}.${WARDEN_ENV_NAME}.test\`) || Host(\`${WARDEN_ENV_NAME}.test\`)"
+      service: ${WARDEN_ENV_NAME}-${WARDEN_WEBSERVICE}
+      tls: {}
+      entryPoints:
+        - https
+      priority: 2
+
+  services:
+    ${WARDEN_ENV_NAME}-${WARDEN_WEBSERVICE}:
+      loadBalancer:
+        servers:
+          - url: "http://${WARDEN_ENV_NAME}-${WARDEN_WEBSERVICE}:80"
+EOT
+
+    echo "✅ Traefik dynamic config created: $DYNAMIC_FILE"
 fi
 
 ## resume mutagen sync if available and php-fpm container id hasn't changed
